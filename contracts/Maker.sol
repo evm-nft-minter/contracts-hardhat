@@ -1,19 +1,19 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
-import "@openzeppelin/contracts/access/Ownable.sol";
-import "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
-import "@openzeppelin/contracts/utils/Address.sol";
-import "@openzeppelin/contracts/utils/cryptography/EIP712.sol";
-import "@openzeppelin/contracts/utils/cryptography/ECDSA.sol";
+import "@openzeppelin/contracts-upgradeable/access/OwnableUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/token/ERC20/utils/SafeERC20Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/AddressUpgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/cryptography/EIP712Upgradeable.sol";
+import "@openzeppelin/contracts-upgradeable/utils/cryptography/ECDSAUpgradeable.sol";
 import "./Collection.sol";
 
-contract Maker is Ownable, EIP712 {
+contract Maker is OwnableUpgradeable, EIP712Upgradeable {
     bytes32 private constant VOUCHER_TYPE = keccak256("Voucher(uint256 fee,uint256 timestamp)");
 
     address private voucherSigner;
 
-    mapping(address => address[]) private ownerToCollections;
+    mapping(address => Collection[]) private ownerToCollections;
 
     struct Voucher {
         uint256 fee;
@@ -21,8 +21,10 @@ contract Maker is Ownable, EIP712 {
         bytes signature;
     }
 
-    constructor(address _voucherSigner) EIP712("Maker", "1") {
+    function initialize(address _voucherSigner) initializer public {
         voucherSigner = _voucherSigner;
+        __Ownable_init();
+        __EIP712_init("Maker", "1");
     }
 
     function make(
@@ -47,16 +49,17 @@ contract Maker is Ownable, EIP712 {
             "Maker: Voucher is expired"
         );
 
+        (bool success, ) = owner().call{value: msg.value}("");
+
+        require(success, "Maker: unable to send value, recipient may have reverted");
+
         Collection _collection = new Collection(collectionName, collectionSymbol);
+
+        ownerToCollections[msg.sender].push(_collection);
 
         _collection.mint(msg.sender, tokenId, tokenUri);
 
         _collection.transferOwnership(msg.sender);
-
-        ownerToCollections[msg.sender].push(address(_collection));
-
-        (bool success, ) = owner().call{value: msg.value}("");
-        require(success, "Maker: unable to send value, recipient may have reverted");
     }
 
     function setVoucherSigner(address _voucherSigner) external {
@@ -67,12 +70,12 @@ contract Maker is Ownable, EIP712 {
         return ownerToCollections[owner].length;
     }
 
-    function collection(address owner, uint256 index) public view returns (address) {
+    function collection(address owner, uint256 index) public view returns (Collection) {
         return ownerToCollections[owner][index];
     }
 
     function _verifyVoucher(Voucher calldata voucher) private view returns (address) {
-        return ECDSA.recover(
+        return ECDSAUpgradeable.recover(
             _hashVoucher(voucher),
             voucher.signature
         );
