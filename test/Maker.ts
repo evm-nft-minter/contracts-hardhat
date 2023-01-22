@@ -3,6 +3,7 @@ import { ethers } from 'hardhat';
 import { Maker } from '../typechain-types';
 import { createVoucher } from './unitls/createVoucher';
 import type { SignerWithAddress } from '@nomiclabs/hardhat-ethers/src/signers';
+import { deployMaker } from '../scripts/deploy';
 
 describe('Maker', function () {
   let maker: Maker;
@@ -19,15 +20,15 @@ describe('Maker', function () {
   const collectionSymbol = 'TEST';
   const tokenUri = 'https://test';
 
-  beforeEach(async () => {
+  before(async () => {
     [owner, collectionOwner, voucherSigner, wrongVoucherSigner] =
       (await ethers.getSigners()) as any;
 
-    const Maker = await ethers.getContractFactory('Maker');
-
-    maker = await Maker.connect(owner).deploy(voucherSigner.address);
-
     timestamp = Math.floor(Date.now() / 1000);
+  });
+
+  beforeEach(async () => {
+    maker = await deployMaker(voucherSigner.address);
   });
 
   it('Should make collection', async function () {
@@ -40,26 +41,43 @@ describe('Maker', function () {
       timestamp
     );
 
-    const tx = await maker
-      .connect(collectionOwner)
+    const tx = await maker.connect(collectionOwner)
       .make(tokenId, collectionName, collectionSymbol, tokenUri, voucher, {
         value: feeAmount,
       });
 
-    tx.wait(1);
+    await tx.wait(1);
 
     const collection = await ethers.getContractAt(
       'Collection',
       await maker.collection(collectionOwner.address, 0)
     );
 
-    expect((await maker.collectionCount(collectionOwner.address)).toNumber()).equal(1);
-    expect(await owner.getBalance()).equal(ownerInitialBalance.add(feeAmount));
-    expect(await collection.name()).equal(collectionName);
-    expect(await collection.symbol()).equal(collectionSymbol);
-    expect(await collection.owner()).equal(collectionOwner.address);
-    expect((await collection.balanceOf(collectionOwner.address)).toNumber()).equal(1);
-    expect(await collection.tokenURI(tokenId)).equal(tokenUri);
+    const [
+      makerCollectionCount,
+      ownerBalance,
+      collectionOwnerBalance,
+      collectionName_,
+      collectionSymbol_,
+      collectionOwner_,
+      tokenURI_,
+    ] = await Promise.all([
+      maker.collectionCount(collectionOwner.address),
+      owner.getBalance(),
+      collection.balanceOf(collectionOwner.address),
+      collection.name(),
+      collection.symbol(),
+      collection.owner(),
+      collection.tokenURI(tokenId),
+    ]);
+
+    expect(makerCollectionCount.toNumber()).equal(1);
+    expect(ownerBalance).equal(ownerInitialBalance.add(feeAmount));
+    expect(collectionOwnerBalance.toNumber()).equal(1);
+    expect(collectionName_).equal(collectionName);
+    expect(collectionSymbol_).equal(collectionSymbol);
+    expect(collectionOwner_).equal(collectionOwner.address);
+    expect(tokenURI_).equal(tokenUri);
   });
 
   it('Should fail if voucher is expired', async function () {
